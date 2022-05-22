@@ -1,0 +1,32 @@
+nlength = 4000 # Number of points along one track
+[x_start, y_start] = [0, 0]  # Starting position
+dt = 1 # Size of time stepper
+stop = 20 # Number of k-values for which we plot TMSD
+t = np.arange(0,nlength)*dt
+
+D1_values = []
+sigma_values = np.linspace(0.5,5,100)
+for sigma in sigma_values:
+   [x, y] = [[x_start], [y_start]]
+   dx = np.random.normal(0,sigma, nlength-1)
+   dy = np.random.normal(0, sigma, nlength-1)
+
+   for i in range(len(dx)):
+      x.append(x[-1] + dx[i])
+      y.append(y[-1] + dy[i])
+    
+   tmsd_values = []
+   for k in range(0, stop + 1):
+     tmsd_values.append(TMSD2([x,y], k))
+
+   t_values = t[0:len(tmsd_values)]
+   m,b = np.polyfit(t_values, tmsd_values, 1)
+   D1_values.append(m/4)
+
+model_string = r'$D_1 = \frac{1}{2}\sigma^2$'
+
+plt.plot(sigma_values, D1_values, 'b.', label='fit from simulation')
+plt.plot(sigma_values, 0.5*sigma_values**2, 'k-', label=model_string)
+plt.xlabel('$\sigma$')
+plt.ylabel('$D_1$')
+plt.legend()
