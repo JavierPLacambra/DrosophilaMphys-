@@ -1,0 +1,137 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Mar 17 13:33:27 2022
+
+@author: jpaga
+"""
+
+import pandas as pd
+import tensorflow as tf
+print(tf.__version__)
+from tensorflow import keras
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+from fbm import FBM,MBM
+import numpy as np
+from tensorflow.keras import layers
+from sklearn.model_selection import train_test_split, learning_curve
+import random
+import matplotlib.pyplot as plt
+import os
+import admin
+
+# Running code as admin solves some issues with ModelCheckpoint
+if not admin.isUserAdmin():
+        admin.runAsAdmin()
+
+
+
+nlength =85
+
+saved_model_adress = "DNNModels\mymodeltest3densediff_n"+str(nlength-1)+".h5"
+try:
+    os.remove(saved_model_adress)
+except:
+    pass
+
+#model = keras.models.load_model(model_adress, compile=True)
+model  = keras.Sequential(
+    [layers.InputLayer(nlength-1,),
+     layers.Dropout(.1, input_shape=(nlength-1,)),
+    # layers.Dense(8, activation = "relu"),
+   #  layers.Dense(8, activation = "relu" ),
+     layers.Dense(nlength-2, activation ='relu'),
+     layers.Dropout(.3, input_shape=(nlength - 2,)),
+     layers.Dense(nlength-3, activation ='relu'),
+     layers.Dropout(.3, input_shape=(nlength-3,)),
+     
+#     layers.Dense(nlength-4, activation='relu'),
+    layers.Dense(1,),]
+    
+   )
+
+model.compile(optimizer="rmsprop", loss ="mean_squared_error", metrics="mean_absolute_error")
+
+dataset = []
+simulatedH = []
+
+for samples in range(0, 1000):
+    Hsim = random.uniform(0,1)
+    f = FBM(n=nlength-1,hurst=Hsim,length=1,method='hosking')
+    x = np.transpose(pd.DataFrame(f.fbm()).values)
+    xdiff = np.transpose(pd.DataFrame(f.fbm()).values[1:])[0]
+    xdiff = np.array([np.ones(len(x[0])-1)])
+    for j in range(1,len(x[0])):
+        xdiff[0,j-1] = (x[0,j] - x[0,j-1])#/(nlength - 1)**Hsim#/(np.max(x[0]) - np.min(x[0]))#/np.mean(np.abs(x[0]))
+    dataset.append(xdiff[0])
+    simulatedH.append(Hsim*2)
+    
+dataset = np.asarray(dataset)
+simulatedH = np.asarray(simulatedH)
+    
+x_train, x_test, y_train, y_test = train_test_split(dataset, simulatedH, 
+                                train_size = 0.9, random_state=48)
+history = model.fit(x_train, y_train,
+                    epochs=1000, batch_size=25,
+                    validation_data=(x_test,y_test), callbacks=[EarlyStopping(monitor='val_loss', patience=100),
+                                                                ModelCheckpoint(filepath=saved_model_adress, monitor='val_loss', save_best_only=True)])
+model.save(saved_model_adress)
+
+loss_values = model.history.history['loss']
+epoch_values = np.arange(0,len(loss_values))
+val_loss_values = model.history.history['val_loss']
+mean_absolute_error_values = model.history.history['mean_absolute_error']
+val_mean_absolute_error_values = model.history.history['val_mean_absolute_error']
+
+
+err_values = []
+
+
+#Load modelength = 14
+#model = tf.saved_model.load("model3densediff_n"+str(13)+".h5")
+#generate fbm example
+simulatedH = []
+testH = []
+print(model.history.history) 
+for samples in range(0,100):
+    Hsim = random.uniform(0,1)
+    f = FBM(n=nlength-1,hurst=Hsim,length=1,method='hosking')
+    x = np.transpose(pd.DataFrame(f.fbm()).values)
+#    xdiff = np.transpose(pd.DataFrame(f.fbm()).values[1:])
+    xdiff = np.array([np.ones(len(x[0])-1)])
+    for j in range(1,len(x[0])):
+        xdiff[0,j-1] = (x[0,j]-x[0,j-1])#/((nlength-1)**Hsim* (np.max(x[0]) - np.min(x[0])))#/np.mean(np.abs(x[0]))
+       # print(x)
+       # print(xdiff)
+    exp_est = model.predict(xdiff)
+    simulatedH.append(Hsim)
+    err_values.append(0.5*exp_est[0][0] - Hsim)
+    testH.append(0.5*exp_est[0][0])
+    print('simulated: ',Hsim,'predicted: ',exp_est*0.5)
+
+    
+sigma = np.mean((np.asarray(err_values))**2)
+sigma = np.sqrt(sigma)
+sigma_str = str("{:.2f}".format(sigma))
+
+plt.figure()
+plt.errorbar(simulatedH,testH, sigma, fmt='b.', ecolor='gray', alpha=0.3)
+plt.plot([0,1],[0,1],'r-')
+plt.xlabel('H simulated')
+plt.ylabel('H estimated')
+plt.title('$\sigma$' + '= ' + sigma_str)
+fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
+ax2.plot(epoch_values, loss_values, 'b-')
+ax2.plot(epoch_values, val_loss_values, 'r-')
+ax1.plot(epoch_values, mean_absolute_error_values, 'b-', label= 'training')
+ax1.plot(epoch_values, val_mean_absolute_error_values, 'r-', label='validation')
+ax2.set_xlabel('Epoch')
+ax2.set_ylabel('Loss')
+ax1.set_ylabel('RMSE')
+ax1.legend(loc='upper left', bbox_to_anchor=(0.6, 0.99),ncol=1,fancybox=True,shadow=True)
+plt.tight_layout()
+plt.show()
+plt.close()
+
+
+
+    
