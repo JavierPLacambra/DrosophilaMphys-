@@ -1,0 +1,52 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from IPython.display import HTML
+
+nlength = 80 # Number of points along one track
+[x_start, y_start] = [0, 0]  # Starting position
+bound = 10
+
+fig, ax = plt.subplots()
+ax.set_xlim(-bound, bound)
+ax.set_ylim(-bound, bound)
+ax.set_xlabel('x (A.U)')
+ax.set_ylabel('y (A.U)')
+[x, y] = [[x_start], [y_start]]
+# Generate random walk and animate just for fun
+
+def animate(i):
+# Declare global variables
+   global x
+   global y
+   global nlength
+   global bound
+    
+   
+   # Handle first frame separately
+   if i==0:
+        line, = ax.plot([], [], lw=2)
+        ax.plot(0,0,'ro')
+        return line
+   # Generate random walk 
+   dx = np.random.normal(0, 1)
+   dy = np.random.normal(0, 1)
+   x.append(x[-1] + dx)
+   y.append(y[-1] + dy)
+   
+   ax.cla() # Clear the previous frame
+   ax.set_xlim(min(-bound,min(x)-1), max(bound, max(x)+1))
+   ax.set_ylim(min(-bound,min(y)-1), max(bound, max(y)+1))
+   ax.set_xlabel('x (A.U)')
+   ax.set_ylabel('y (A.U)')
+    
+   # Draw the next frame
+   line, = ax.plot([], [], lw=2)
+   line.set_data(x, y)
+   ax.plot(x[-1], y[-1], 'ro')
+   ax.plot(0, 0, 'go')
+   
+   return line
+
+anim = animation.FuncAnimation(fig, animate, frames = nlength, interval=100)
+HTML(anim.to_jshtml())
