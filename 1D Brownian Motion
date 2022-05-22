@@ -1,0 +1,45 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+nlength = 4000 # Number of points along one track
+x_start = 0  # Starting position
+dt = 1 # Size of time stepper
+stop = 750 # Number of k-values for which we plot TMSD
+
+def TMSD1(position_array, k):
+    """
+    Returns TMSD(k dt) for an array of positions.
+    """
+    xdiff = []
+    for i in range(0, len(position_array)-k):
+        xdiff.append(position_array[i+k] - position_array[i])
+    xdiff_sq = xdiff**(2*np.ones(len(xdiff)))
+    #print(xdiff_sq)
+    tmsd = np.mean(xdiff_sq)
+    return tmsd
+    
+# Generate random walk
+dx = np.random.normal(0, 1, nlength-1)
+x = [x_start]
+t = np.arange(0,nlength)*dt
+for i in range(1, nlength):
+   x.append(x[i-1] + dx[i-1])
+
+# Plot random walk
+plt.plot(t, x, 'b-')
+#plt.title("Random Walk 1D")
+plt.xlabel("Time values")
+plt.ylabel("x values")
+plt.show()
+
+# Calculate TMSD(kdt) for 0 < k < stop
+tmsd_values = []
+for k in range(0, stop + 1):
+    tmsd_values.append(TMSD1(x, k))
+
+# Plot TMSD
+plt.plot(t[0:len(tmsd_values)], tmsd_values, 'k.')
+#plt.title('Time averaged mean squared displacement')
+plt.xlabel('Time values')
+plt.ylabel('TMSD')
+plt.show()
