@@ -1,0 +1,172 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun May 15 11:12:37 2022
+
+@author: jpaga
+"""
+
+import statsmodels.api as sm
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from fbm import FBM
+from scipy.special import gamma
+import random
+from tensorflow import keras
+import time
+
+def estimate_H_with_moments(x):
+    """ Uses the method of gaussian moments to estimate H from fbm track.
+    Assume unit variance."""
+    
+    N = len(x)
+    rootpiover2 = np.sqrt(np.pi / 2)
+    logNminus1 = np.log(N)
+    abs_diff = []
+    for i in range(N-1):
+        abs_diff.append(np.abs(x[i+1]-x[i]))
+    M = np.mean(abs_diff)
+
+    Hest = -np.log(rootpiover2 * M  / gamma(1))
+    Hest = Hest / logNminus1
+    
+    return Hest
+
+def TMSD(sample_array):
+    """Calculates the time averaged mean square displacement of a track,
+    which is passed as an N-array of 2D positions. The argument time is the
+    range of times for which it is calculated."""
+    n = 0
+    result = []
+    stop = int(np.floor(0.25 * len(sample_array)))
+    while n < stop:
+        disp = []
+        for i in range(len(sample_array)-stop):
+            dx = sample_array[i+n] - sample_array[i]
+            disp.append(dx**2)
+        result.append(np.mean(disp))
+        n += 1
+    return result    
+
+def estimate_H_with_TMSD(x):
+    """
+    Uses the TMSD power law method to estimate H from fbm track.
+    """
+    TMSD_values = TMSD(x)
+    t_log_values = np.log(np.arange(1, len(TMSD_values)))
+    msd_log_values = np.log(TMSD_values)[1:]
+    a, b = np.polyfit(t_log_values, msd_log_values, 1)
+    H_value = 0.5 * a
+    
+    return H_value
+
+def estimate_H_with_DNN(increments, TrainedModel):
+    """
+    Uses a pre-trained DNN model to estimate H from fbm track
+    """
+
+    Hest = 0.5 * TrainedModel.predict(increments)[0][0]
+    
+    return Hest
+
+ 
+nvalues = range(15,95,5)
+
+GaussRMSEvalues = []
+#TMSDRMSEvalues = []
+DNNRMSEvalues = []
+
+Gausstimevalues = []
+#TMSDtimevalues = []
+DNNtimevalues = []
+
+GaussAICvalues = []
+#TMSDAICvalues = []
+DNNAICvalues = []
+
+
+
+for N in nvalues:
+    model_adress = "DNNModels\mymodeltest3densediff_n"+str(N-1)+".h5"
+    model = keras.models.load_model(model_adress, compile=True)
+    
+    simulatedH = []
+    GausstestH = []
+ #   TMSDtestH = []
+    DNNtestH = []
+    
+    GaussErr = []
+  #  TMSDErr = []
+    DNNErr = []
+    
+    GaussTime = []
+   # TMSDTime = []
+    DNNTime = []
+    
+    for samples in range(0,100):
+        Hsim = random.uniform(0,0.99)
+        f = FBM(n=N-1, hurst=Hsim, length=1, method='hosking')
+        x = np.transpose(pd.DataFrame(f.fbm()).values)
+        xdiff = np.array([np.ones(len(x[0])-1)])
+        for j in range(1,len(x[0])):
+            xdiff[0,j-1] = (x[0,j]-x[0,j-1])
+        tic = time.time()
+        GaussHrec = estimate_H_with_moments(x[0])
+        toc = time.time()
+        GaussTime.append(toc - tic)
+        #tic = time.time()
+       # TMSDHrec = estimate_H_with_TMSD(x[0])
+        #toc = time.time()
+       # TMSDTime.append(toc - tic)
+        tic = time.time()
+        DNNHrec = estimate_H_with_DNN(xdiff, model)
+        toc = time.time()
+        DNNTime.append(toc - tic)
+        simulatedH.append(Hsim)
+        GausstestH.append(GaussHrec)
+      #  TMSDtestH.append(TMSDHrec)
+        DNNtestH.append(DNNHrec)
+        GaussErr.append((Hsim - GaussHrec)**2)
+      #  TMSDErr.append((Hsim - TMSDHrec)**2)
+        DNNErr.append((Hsim - DNNHrec)**2)
+        
+    GaussSigma = np.sqrt(np.mean(GaussErr))
+   # TMSDSigma = np.sqrt(np.mean(TMSDErr))
+    DNNSigma =  np.sqrt(np.mean(DNNErr))
+    
+    
+    GaussModel = sm.OLS(GausstestH, simulatedH).fit()
+   # TMSDModel = sm.OLS(TMSDtestH, simulatedH).fit()
+    DNNModel = sm.OLS(DNNtestH, simulatedH).fit()
+    
+    GaussAIC = GaussModel.aic
+ #   TMSDAIC = TMSDModel.aic
+    DNNAIC = DNNModel.aic
+    
+    GaussAICvalues.append(GaussAIC)
+ #   TMSDAICvalues.append(TMSDAIC)
+    DNNAICvalues.append(DNNAIC)
+    
+    Gausstimevalues.append(np.mean(GaussTime))
+  #  TMSDtimevalues.append(np.mean(TMSDTime))
+    DNNtimevalues.append(np.mean(DNNTime))
+    
+    GaussRMSEvalues.append(GaussSigma)
+    DNNRMSEvalues.append(DNNSigma)
+    
+fig1, (ax11, ax12) = plt.subplots(2, 1, sharex=True)
+ax11.plot(nvalues, GaussAICvalues, 'm-', lw=1, label='Gaussian moments')
+#ax11.plot(nvalues, TMSDAICvalues, 'g-', lw=1, label='TMSD')
+ax11.plot(nvalues, DNNAICvalues, 'b-', lw=1, label='DLFNN')
+ax11.set_ylabel('AIC (A.U)')
+ax12.plot(nvalues, GaussRMSEvalues, 'm-', lw=1, label='Gaussian moments')
+#ax12.plot(nvalues, TMSDtimevalues, 'g-', lw=1, label ='TMSD')
+ax12.plot(nvalues, DNNRMSEvalues, 'b-', lw=1, label='DLFNN')
+ax12.set_xlabel('Number of points')
+ax12.set_ylabel('Root mean square error (A.U)')
+#ax12.set_yscale('log')
+
+ax12.legend(fontsize=10,loc='upper center', bbox_to_anchor=(0.5, 1.22),ncol=2,fancybox=True,shadow=True)
+
+plt.show()    
+    
