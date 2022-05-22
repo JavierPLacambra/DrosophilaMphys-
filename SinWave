@@ -1,0 +1,155 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun May 15 19:45:37 2022
+
+@author: jpaga
+"""
+
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-bright')
+font = {'family' : 'normal',
+    'weight' : 'normal',
+        'size'   : 14}
+
+plt.rc('font', **font)
+
+import pandas as pd
+import tensorflow as tf
+print(tf.__version__)
+from tensorflow import keras
+from fbm import MBM
+import numpy as np
+from scipy.special import gamma
+
+W = 20   # Width of window used for all methods
+tracklength = 1000  # Number of data-points in MBM track
+amplitude = 0.3
+noscillations = 1.5  # Number of full oscillations of hurst exponent along track
+H0 = 0.5  # Central value of H
+model = keras.models.load_model( "DNNModels\mymodeltest3densediff_n"+str(W-1)+".h5", compile=True)
+
+multipath = []
+multiexp = []
+DNNestmultiexp = []
+Gaussestmultiexp = []
+TMSDestmultiexp = []
+esttime = []
+
+GaussErr = []
+TMSDErr = []
+DNNErr = []
+
+#stitch together multifractional fbm
+def H(t):
+    result = H0 + amplitude * np.sin(2*np.pi*noscillations * t / tracklength)
+    return result
+
+f = MBM(n = tracklength - 1, hurst = H, length=1)
+x = f.mbm()
+
+def TMSD(sample_array):
+    """Calculates the time averaged mean square displacement of a track,
+    which is passed as an N-array of 2D positions. The argument time is the
+    range of times for which it is calculated."""
+    n = 0
+    result = []
+    stop = int(np.floor(0.25 * len(sample_array)))
+    while n < stop:
+        disp = []
+        for i in range(len(sample_array)-stop):
+            dx = sample_array[i+n] - sample_array[i]
+            disp.append(dx**2)
+        result.append(np.mean(disp))
+        n += 1
+    return result 
+
+def estimate_H_with_TMSD(x):
+    """
+    Uses the TMSD power law method to estimate H from fbm track.
+    """
+    TMSD_values = TMSD(x)
+    t_log_values = np.log(np.arange(1, len(TMSD_values)))
+    msd_log_values = np.log(TMSD_values)[1:]
+    a, b = np.polyfit(t_log_values, msd_log_values, 1)
+    H_value = 0.5 * a
+    
+    return H_value
+
+def estimate_H_with_moments(x):
+    """ Uses the method of gaussian moments to estimate H from fbm track.
+    Assume unit variance."""
+    
+    N = len(x)
+    rootpiover2 = np.sqrt(np.pi / 2)
+    logNminus1 = np.log(N)
+    abs_diff = []
+    for i in range(N-1):
+        abs_diff.append(np.abs(x[i+1]-x[i]))
+    M = np.mean(abs_diff)
+
+    Hest = -np.log(rootpiover2 * M  / gamma(1))
+    Hest = Hest / logNminus1
+    
+    return Hest
+
+for t in range(0, tracklength):
+    Hsim = H(t)
+    multiexp.append(Hsim)
+    multipath.append(x[t])
+
+
+
+#symmetric window analysis
+eitherside = int(np.floor(float(W)/2.))
+for i in range(eitherside,len(multipath)-eitherside):
+    #for differenc
+    if W % 2 == 1:
+        x = np.transpose(pd.DataFrame(multipath[i-eitherside:i+eitherside+1]-multipath[i-eitherside]).values)
+    else:
+        x = np.transpose(pd.DataFrame(multipath[i-eitherside:i+eitherside]-multipath[i-eitherside]).values)
+    xshape = x.shape
+   # x[0] = x[0] / np.mean(np.abs(x[0]))
+    xdiff = np.empty((xshape[0],xshape[1]-1))
+    for j in range(1,len(x[0])):
+        xdiff[0][j-1] = (x[0][j]-x[0][j-1])*((tracklength-1)/(W - 1))**(1-multiexp[i])
+    test_one = model.predict(xdiff)
+    esttime.append(i)
+    DNNestmultiexp.append(0.5*test_one[0][0]) 
+    Gaussestmultiexp.append(estimate_H_with_moments(x[0] *((tracklength-1)/(W - 1))**(1-multiexp[i])))
+    TMSDestmultiexp.append(estimate_H_with_TMSD(x[0]))
+    GaussErr.append((Gaussestmultiexp[-1] - multiexp[i])**2)
+    TMSDErr.append((TMSDestmultiexp[-1] - multiexp[i])**2)
+    DNNErr.append((DNNestmultiexp[-1] - multiexp[i])**2)
+
+GaussRMSE = np.sqrt(np.mean(GaussErr))
+TMSDRMSE = np.sqrt(np.mean(TMSDErr))
+DNNRMSE = np.mean((DNNErr))
+    
+    
+# Smooth out DNN response using a running average filter
+#estmultiexp = np.convolve(np.ones(4)/4, estmultiexp, mode ='valid')
+#esttime = np.linspace(eitherside, len(multipath)-eitherside, len(estmultiexp))
+
+
+#plots
+fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+
+ax1.plot(multipath,'k-',lw=1)
+ax1.set_ylabel('x (A.U.)')
+#ax1.set_title('Simulated data')
+
+ax2.plot(multiexp,'k-',lw=3,label='simulated',alpha=0.5)
+ax2.plot(esttime,DNNestmultiexp,'b-',lw=1,label='DLFNN')
+ax2.plot(esttime, Gaussestmultiexp, 'm-', lw=1, label='Gaussian moments')
+ax2.plot(esttime, TMSDestmultiexp, 'g-', lw=1, label='TMSD')
+ax2.legend(fontsize=10,loc='upper center', bbox_to_anchor=(0.5, 1.22),ncol=2,fancybox=True,shadow=True)
+ax2.set_xlabel('Time points')
+ax2.set_ylabel(r'$H$')
+ax2.set_xlim(0.,len(multipath))
+ax2.set_ylim(0.,1.)
+
+plt.tight_layout()
+
+print('Gauss RMSE = ', str(GaussRMSE))
+print('TMSD RMSE = ', str(TMSDRMSE))
+print('DNN RMSE = ', str(DNNRMSE))
