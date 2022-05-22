@@ -1,0 +1,49 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+nlength = 5000 # Number of points along one track
+[x_start, y_start] = [0, 0]  # Starting position
+dt = 1 # Size of time stepper
+stop = 20 # Number of k-values for which we plot TMSD
+t = np.arange(0,nlength)*dt
+
+def TMSD2(position_array, k):
+    """
+    Returns TMSD(k dt) for an array of 2D positions.
+    """
+    xdiff = []
+    ydiff = []
+    sq_disp = []
+    for i in range(0, len(position_array[0])-k):
+        xdiff.append(position_array[0][i+k] - position_array[0][i])
+        ydiff.append(position_array[1][i+k] - position_array[1][i])
+        sq_disp.append(xdiff[-1]**2 + ydiff[-1]**2)
+    tmsd = np.mean(sq_disp)
+    return tmsd
+
+[x, y] = [[x_start], [y_start]]
+dx = np.random.normal(0,1, nlength-1)
+dy = np.random.normal(0, 1, nlength-1)
+
+for i in range(len(dx)):
+    x.append(x[-1] + dx[i])
+    y.append(y[-1] + dy[i])
+    
+tmsd_values = []
+for k in range(0, stop + 1):
+    tmsd_values.append(TMSD2([x,y], k))
+    
+y_values = tmsd_values
+t_values = t[0:len(tmsd_values)]
+m,b = np.polyfit(t_values, y_values, 1)
+y_fit = m*np.linspace(0, max(t_values), 100) + b
+y_model = 2 * np.linspace(0, max(t_values), 100)
+fit_name_string = 'TMSD' +'$(t) = $ ' + '{:.2f}'.format(m) +'$t + $'+ '{:.2f}'.format(b)
+
+plt.plot(t_values, y_values, 'k.', label = 'simulated data')
+plt.plot(np.linspace(0, max(t_values), 100), y_fit, 'r-', label = fit_name_string)
+plt.plot(np.linspace(0, max(t_values), 100), y_model, 'b-', label = 'TMSD(t) = 2t')
+#plt.title("TMSD linear fit")
+plt.xlabel("Time Values")
+plt.ylabel("TMSD")
+plt.legend()
